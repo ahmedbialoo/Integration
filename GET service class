@@ -80,7 +80,7 @@ Public class CreateInvoiceService
 
                 // Build request
                 webreq = System.Net.WebRequest::Create(url);
-                webreq.set_Method("POST");
+                webreq.set_Method("GET");
                 webreq.set_ContentType("application/json");
 
                 // Add bearer token
@@ -93,7 +93,7 @@ Public class CreateInvoiceService
                 reader = new System.IO.StreamReader(responsestr);
 
                 //Deserialize JSON
-                invoiceServiceResponse = FormJsonSerializer::deserializeObject(classNum(InvoiceServiceResponse), reader.ReadToEnd()) as InvoiceServiceResponse ;
+                invoiceServiceResponse = FormJsonSerializer::deserializeObject(classNum(InvoiceServiceResponse), reader.ReadToEnd()) ;
 
                 
             if (invoiceServiceResponse)
