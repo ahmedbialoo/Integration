@@ -1,0 +1,266 @@
+Public class CreateInvoiceService
+{
+    //FromDateTime     fromDateTime;
+    //ToDateTime      toDateTime;
+
+
+    public static boolean validateCert(System.Object sender,
+                                System.Security.Cryptography.X509Certificates.X509Certificate cert,
+                                System.Security.Cryptography.X509Certificates.X509Chain chain,
+                                System.Net.Security.SslPolicyErrors errors)
+    {
+        return true;
+    }
+
+    //public void setDates(FromDateTime _fromDateTime, ToDateTime _toDateTime)
+    //{
+    //    fromDateTime = _fromDateTime;
+    //    toDateTime = _toDateTime;
+    //    if(fromDateTime == utcDateTimeNull())
+    //        fromDateTime = DateTimeUtil::addDays(DateTimeUtil::newDateTime(DateTimeUtil::getSystemDate(DateTimeUtil::getCompanyTimeZone()), 0),-1);
+    //    if(toDateTime == utcDateTimeNull())
+    //        toDateTime = DateTimeUtil::utcNow();
+
+    //}
+
+    str authentication()
+    {
+        str                 rawResponse;
+        Map                 responseData;
+        RetailWebResponse   response;
+        System.Byte[]          bytes;
+        System.Text.Encoding      Encoding=System.Text.Encoding::get_UTF8();
+        str basicauth;
+        RetailCommonWebAPI webapi;
+        InvoiceParams Params=InvoiceParams::find();
+        
+        str UserName = Params.UserName;//'ClearWaterCom';
+        str password = Params.Password;//'P@ssw0rd';
+        System.Net.Security.RemoteCertificateValidationCallback callBack;
+        callBack += eventhandler(CreateInvoiceService::validateCert);
+        System.Net.ServicePointManager::ServerCertificateValidationCallback = callBack;
+        webApi=RetailCommonWebAPI::construct();
+        str authBody = strFmt('grant_type=password&username=%1&password=%2', userName, password);
+
+        response = webApi.makePostRequest(Params.AuthUrl,authBody,"","application/x-www-form-urlencoded");
+        if(response.parmHttpStatus() != 200)
+           throw error("Couldnt authenticate");
+
+        rawResponse = response.parmData();
+        responseData = RetailCommonWebAPI::getMapFromJsonString(rawResponse);
+ 
+        str token = responseData.lookup("access_token");
+        return token;
+    }
+
+    public void processInvoice(str token)
+    {
+        System.Net.WebRequest           webreq;
+        System.Net.WebHeaderCollection  headercollection;
+        System.IO.Stream                streamstr,
+                                        responsestr;
+        System.IO.StreamWriter          streamWriter;
+        System.Net.WebResponse          webresponse;
+        System.IO.StreamReader          reader;
+        System.Exception                ex;
+        InvoiceParams                   params = InvoiceParams::find();
+        InvoiceServiceResponse          invoiceServiceResponse;
+        //int                             i = 0, value = 0;
+        //str                             fromDateString = System.String::Format('{0:s}', fromDateTime);
+        //str                             toDateString = System.String::Format('{0:s}', toDateTime);;
+        str                             url;
+        
+
+        
+        //for(i = 0; i <= value; i++)
+        //{
+            try
+            {
+                url = params.CreateInvoiceUrl;
+
+                // Build request
+                webreq = System.Net.WebRequest::Create(url);
+                webreq.set_Method("POST");
+                webreq.set_ContentType("application/json");
+
+                // Add bearer token
+                headercollection = webreq.Headers;
+                headercollection.Add("Authorization", strfmt("bearer %1", token));
+            
+                //Get response
+                webresponse = webreq.GetResponse();
+                responsestr = webresponse.GetResponseStream();
+                reader = new System.IO.StreamReader(responsestr);
+
+                //Deserialize JSON
+                invoiceServiceResponse = FormJsonSerializer::deserializeObject(classNum(InvoiceServiceResponse), reader.ReadToEnd()) as InvoiceServiceResponse ;
+
+                
+            if (invoiceServiceResponse)
+                {
+                    info(strFmt("Invoice No: %1", invoiceServiceResponse.parmBody().parmInvoiceNo()));
+                    info(strFmt("Internal Code: %1", invoiceServiceResponse.parmBody().parmInternalCode()));
+                    info(strFmt("Status: %1 - %2",
+                    invoiceServiceResponse.parmStatus().parmCode(),
+                    invoiceServiceResponse.parmStatus().parmMessage()
+                ));
+
+                if (!invoiceServiceResponse.parmStatus().parmSuccess())
+                    {
+                        warning("Invoice creation failed at external service.");
+                    }
+                }
+                else
+                {
+                    error("Failed to deserialize invoice response.");
+                }
+
+                }
+            catch
+            {
+                Error(AifUtil::getClrErrorMessage());
+                error(AifUtil::getClrErrorMessage());
+                
+            }
+        //}
+        
+        
+    }
+
+    //private void insertDonations(ListDonationsResponse listDonationsResponse, int recordsTotal)
+    //{
+    //    DonationListLog                 donationListLog;
+    //    WEDDonationTransStatus          transStatus;
+    //    ListDonationsDataResponse       donationsDataResponse = new ListDonationsDataResponse();
+    //    ListDonationsProjectResponse    donationsProjectResponse = new ListDonationsProjectResponse();
+    //    List                            donationsDataResponseList = new List(Types::Class);
+    //    List                            donationsProjectResponseList = new List(Types::Class);
+    //    Map                             groupedProjects = new Map(Types::String, Types::Class); // To group projects
+    //    int                             groupedTotalAmount = 0; // To validate total amount consistency
+
+    //    donationsDataResponseList = listDonationsResponse.ListData();
+    //    ListEnumerator donationsDataResponseListEnum = donationsDataResponseList.getEnumerator();
+    //    ListEnumerator listProjectEnumerator;
+    //    if (!donationsDataResponseList)
+    //       return;
+
+    //    while (donationsDataResponseListEnum.moveNext())
+    //    {
+    //        donationsDataResponse = donationsDataResponseListEnum.current();
+    //        transStatus = donationsDataResponse.StatusName() == "عملية مقبولة" ? WEDDonationTransStatus::Paid : WEDDonationTransStatus::Unpaid;
+
+    //        // Check if the operation code already exists
+    //        select firstonly * from donationListLog
+    //        where donationListLog.operationCode == donationsDataResponse.operationCode()
+    //            && donationListLog.LedgerJournalId;
+
+    //        if (donationListLog)
+    //           continue;
+
+    //        donationsProjectResponseList = donationsDataResponse.ListProjects();
+    //        listProjectEnumerator = donationsProjectResponseList.getEnumerator();
+
+    //        groupedProjects = new Map(Types::String, Types::Class); // Reset for each donation
+    //        groupedTotalAmount = 0;
+
+    //        while (listProjectEnumerator.moveNext())
+    //        {
+    //            donationsProjectResponse = listProjectEnumerator.current();
+
+    //            // Create a unique key for grouping
+    //            str groupKey = strFmt("%1|%2|%3|%4",
+    //                              donationsProjectResponse.ProjectName(),
+    //                              donationsProjectResponse.CategoryName(),
+    //                              donationsProjectResponse.Amount(),
+    //                              donationsProjectResponse.Quantity());
+
+    //            if (groupedProjects.exists(groupKey))
+    //            {
+    //                // Update existing project by aggregating quantities
+    //                ListDonationsProjectResponse existingProject = groupedProjects.lookup(groupKey);
+    //                existingProject.Quantity(existingProject.Quantity() + donationsProjectResponse.Quantity());
+    //            }
+    //            else
+    //            {
+    //                // Add a new project entry
+    //                groupedProjects.insert(groupKey, donationsProjectResponse);
+    //            }
+
+    //            // Aggregate total amount for validation
+    //            //groupedTotalAmount += donationsProjectResponse.Amount();
+    //            real a = donationsProjectResponse.Amount();
+    //            real q = donationsProjectResponse.Quantity();
+    //            real projectAmount = a * q ;//donationsProjectResponse.Amount() * donationsProjectResponse.Quantity();
+    //            groupedTotalAmount += projectAmount;
+    //        }
+
+    //        // Validate total amount consistency
+    //        if (groupedTotalAmount != donationsDataResponse.totalAmount())
+    //        {
+    //            throw error(strFmt("%1 - Mismatch between total amount and aggregated project amounts.",donationsDataResponse.operationCode()));
+    //        }
+
+    //        // Insert grouped projects into the database
+    //        MapEnumerator groupedProjectsEnumerator = groupedProjects.getEnumerator();
+    //        while (groupedProjectsEnumerator.moveNext())
+    //        {
+    //            donationsProjectResponse = groupedProjectsEnumerator.currentValue();
+
+    //            // Check if this exact project already exists
+    //            select firstonly forupdate * from donationListLog
+    //            where donationListLog.operationCode == donationsDataResponse.operationCode()
+    //                && donationListLog.ID == donationsDataResponse.ID()
+    //                && donationListLog.ProjectName == donationsProjectResponse.ProjectName()
+    //                && donationListLog.CategoryName == donationsProjectResponse.CategoryName()
+    //                && donationListLog.Amount == donationsProjectResponse.Amount()
+    //                && donationListLog.Quantity == donationsProjectResponse.Quantity();
+
+    //            if (donationListLog)
+    //            {
+    //                ttsbegin;
+    //                donationListLog.ID                  = donationsDataResponse.ID();
+    //                donationListLog.paymentMethod       = donationsDataResponse.paymentMethod();
+    //                donationListLog.affiliateName       = donationsDataResponse.affiliateName();
+    //                donationListLog.bankAccountName     = donationsDataResponse.bankAccountName();
+    //                donationListLog.TransDateTime       = DateTimeUtil::removeTimeZoneOffset(donationsDataResponse.donationDate(),DateTimeUtil::getCompanyTimeZone());
+    //                donationListLog.operationCode       = donationsDataResponse.operationCode();
+    //                donationListLog.DonorName           = donationsDataResponse.donorName();
+    //                donationListLog.donorMobile         = donationsDataResponse.donorMobile();
+    //                donationListLog.totalAmount         = donationsDataResponse.totalAmount();
+    //                donationListLog.statusName          = donationsDataResponse.StatusName();
+    //                donationListLog.ProjectName         = donationsProjectResponse.ProjectName();
+    //                donationListLog.CategoryName        = donationsProjectResponse.CategoryName();
+    //                donationListLog.Amount              = donationsProjectResponse.Amount();
+    //                donationListLog.Quantity            = donationsProjectResponse.Quantity();
+    //                donationListLog.recordsTotal        = recordsTotal;
+
+    //                donationListLog.DonationTransStatus = transStatus;
+    //                donationListLog.update();
+    //                ttscommit;
+    //                continue;
+    //            }
+
+    //            // Insert new project
+    //            donationListLog.clear();
+    //            donationListLog.recordsTotal        = recordsTotal;
+    //            donationListLog.ID                  = donationsDataResponse.ID();
+    //            donationListLog.paymentMethod       = donationsDataResponse.paymentMethod();
+    //            donationListLog.affiliateName       = donationsDataResponse.affiliateName();
+    //            donationListLog.bankAccountName     = donationsDataResponse.bankAccountName();
+    //            donationListLog.TransDateTime       = DateTimeUtil::removeTimeZoneOffset(donationsDataResponse.donationDate(),DateTimeUtil::getCompanyTimeZone());
+    //            donationListLog.operationCode       = donationsDataResponse.operationCode();
+    //            donationListLog.DonorName           = donationsDataResponse.donorName();
+    //            donationListLog.donorMobile         = donationsDataResponse.donorMobile();
+    //            donationListLog.totalAmount         = donationsDataResponse.totalAmount();
+    //            donationListLog.statusName          = donationsDataResponse.StatusName();
+    //            donationListLog.ProjectName         = donationsProjectResponse.ProjectName();
+    //            donationListLog.CategoryName        = donationsProjectResponse.CategoryName();
+    //            donationListLog.Amount              = donationsProjectResponse.Amount();
+    //            donationListLog.Quantity            = donationsProjectResponse.Quantity();
+    //            donationListLog.DonationTransStatus = transStatus;
+    //            donationListLog.insert();
+    //        }
+    //    }
+    //}   
+
+}
