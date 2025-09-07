@@ -1,0 +1,40 @@
+internal final class CreateInvoiceJob extends RunBaseBatch
+{
+    
+
+    public void run()
+    {
+        CreateInvoiceService obj =new CreateInvoiceService();
+            
+        obj.sendInvoice(obj.authenticateWithHttpClient());
+    }
+
+    public static void main (Args _args)
+
+    {
+        
+        CreateInvoiceJob createInvoiceJob = new CreateInvoiceJob();
+       
+        if (createInvoiceJob.prompt())
+        {
+            createInvoiceJob.run();
+        }
+        
+    }
+
+    public static ClassDescription description()
+    {
+        return "Create invoice job";
+    }
+
+    boolean canGoBatch()
+    {
+        return true;
+    }
+
+    public boolean canRunInNewSession()
+    {
+        return true;
+    }
+
+}
