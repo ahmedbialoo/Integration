@@ -1,0 +1,76 @@
+public void sendInvoice(str token)
+{
+    System.Net.Http.HttpClient          httpClient;
+    System.Net.Http.HttpRequestMessage  requestMessage;
+    System.Net.Http.HttpResponseMessage responseMessage;
+    System.Net.Http.StringContent       stringContent;
+    System.Text.Encoding                encoding;
+    System.Uri                          requestUri;
+    str                                 jsonBody;
+    str                                 bearerToken;
+    str                                 responseBody;
+    InvoiceContract                     invoice = new InvoiceContract();
+    ProductContract                     product;
+    List                                products = new List(Types::Class);
+
+    //Initialize HttpClient and HttpRequestMessage.
+    httpClient = new System.Net.Http.HttpClient();
+    requestMessage = new System.Net.Http.HttpRequestMessage();
+
+    //Define the request URI.
+    requestUri = new System.Uri("https://api-test.edaaat.com/api/v2/Invoices/Installment"); // Replace with your actual API endpoint
+    requestMessage.set_RequestUri(requestUri);
+
+    //Set the HTTP method to POST.
+    requestMessage.set_Method(System.Net.Http.HttpMethod::get_Post());
+
+    //Prepare the JSON body and StringContent.
+    invoice.parmIsClientEnterprise(true);
+    invoice.parmRegistrationNo("1609199517");
+    invoice.parmInternalCode("installment invoice MNHNEW3_9");
+    invoice.parmIssueDate(DateTimeUtil::utcNow());
+    invoice.parmDueDate(DateTimeUtil::utcNow());
+    invoice.parmTotalAmount(2500);
+    invoice.parmTemplateReferenceCode("MHNNEW3");
+    invoice.parmExportToSadad(true);
+    
+    product = new ProductContract();
+    product.parmProductCode("123456789");
+    product.parmPrice(2500);
+    product.parmQty(1);
+    
+    products.addEnd(product);
+    invoice.parmProducts(products);
+
+    jsonBody = FormJsonSerializer::serializeClass(invoice);
+    Info(strFmt("Body is: %1",jsonBody));
+
+    encoding = System.Text.Encoding::get_UTF8();
+    stringContent = new System.Net.Http.StringContent(jsonBody, encoding, "application/json");
+    requestMessage.set_Content(stringContent);
+
+    //Add the Bearer token to the Authorization header:
+    requestMessage.get_Headers().Add("Authorization", strFmt("Bearer %1", token));
+
+    //Send the request and handle the response:
+    try
+    {
+        responseMessage = httpClient.SendAsync(requestMessage).Result; // Synchronous call for simplicity
+        Info(strFmt("Response : %1", responseMessage));
+        if (responseMessage.get_IsSuccessStatusCode())
+        {
+            responseBody = responseMessage.get_Content().ReadAsStringAsync().Result;
+            info(strFmt("Response Body: %1", responseBody));
+        }
+        else
+        {
+            error(strFmt("Request failed with status code: %1", responseMessage.get_StatusCode()));
+            responseBody = responseMessage.get_Content().ReadAsStringAsync().Result;
+            info(strFmt("Error details: %1", responseBody));
+        }
+    }
+    catch (Exception::Error)
+    {
+        error("An error occurred during the HTTP request.");
+    }
+}
