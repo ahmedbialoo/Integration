@@ -1,0 +1,49 @@
+public str authenticateWithHttpClient()
+{
+    str                                 rawResponse;
+    Map                                 responseData;
+    System.Net.Http.HttpClient          httpClient;
+    System.Net.Http.StringContent       stringContent;
+    System.Net.Http.HttpResponseMessage responseMessage;
+    System.Text.Encoding                encoding;
+    System.Net.Http.HttpContent         responseContent;
+    str                                 authBody;
+    InvoiceParams                       Params = InvoiceParams::find();
+    str                                 userName = Params.UserName;
+    str                                 password = Params.Password;
+    str                                 token;
+
+    try
+    {
+        // Prepare the request
+        httpClient = new System.Net.Http.HttpClient();
+        encoding   = System.Text.Encoding::get_UTF8();
+
+        authBody   = strFmt("grant_type=password&username=%1&password=%2", userName, password);
+
+        stringContent = new System.Net.Http.StringContent(authBody, encoding, "application/x-www-form-urlencoded");
+
+        // Send POST request
+        responseMessage = httpClient.PostAsync(Params.AuthUrl, stringContent).get_Result();
+
+        if (!responseMessage.get_IsSuccessStatusCode())
+        {
+            throw error(strFmt("Could not authenticate. Status code: %1", responseMessage.get_StatusCode()));
+        }
+
+        // Read response
+        responseContent = responseMessage.get_Content();
+        rawResponse     = responseContent.ReadAsStringAsync().get_Result();
+
+        // Convert JSON response to map
+        responseData    = RetailCommonWebAPI::getMapFromJsonString(rawResponse);
+
+        token = responseData.lookup("access_token");
+    }
+    catch (Exception::CLRError)
+    {
+        System.Exception ex = CLRInterop::getLastException();
+        throw error(ex.ToString());
+    }
+    return token;
+}
