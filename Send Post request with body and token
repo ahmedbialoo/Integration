@@ -1,76 +1,113 @@
-public void sendInvoice(str token)
-{
-    System.Net.Http.HttpClient          httpClient;
-    System.Net.Http.HttpRequestMessage  requestMessage;
-    System.Net.Http.HttpResponseMessage responseMessage;
-    System.Net.Http.StringContent       stringContent;
-    System.Text.Encoding                encoding;
-    System.Uri                          requestUri;
-    str                                 jsonBody;
-    str                                 bearerToken;
-    str                                 responseBody;
-    InvoiceContract                     invoice = new InvoiceContract();
-    ProductContract                     product;
-    List                                products = new List(Types::Class);
+ public void sendInvoice(CustTable _custTable)
+ {
+     System.Net.Http.HttpClient          httpClient;
+     System.Net.Http.HttpRequestMessage  requestMessage;
+     System.Net.Http.HttpResponseMessage responseMessage;
+     System.Net.Http.StringContent       stringContent;
+     System.Text.Encoding                encoding;
+     System.Uri                          requestUri;
+     str                                 token = this.authenticate();
+     str                                 jsonBody;
+     str                                 responseBody;
+     SC_InvoiceContract                  requestContract = new SC_InvoiceContract();
+     SC_ProductContract                  product;
+     List                                products = new List(Types::Class);
+     SC_InvoiceResponseContract          responseContract;
+     SC_ResponseTable                    responseTable;
+     SC_InvoiceParams                    Params = SC_InvoiceParams::find();
+     AmountMST                           custbalance = SC_CalculateCustBalance::getCustBalance(_custTable.AccountNum);
+     custbalance = (custbalance == 0) ? 1 : custbalance;
+     //Initialize HttpClient and HttpRequestMessage.
+     httpClient = new System.Net.Http.HttpClient();
+     requestMessage = new System.Net.Http.HttpRequestMessage();
 
-    //Initialize HttpClient and HttpRequestMessage.
-    httpClient = new System.Net.Http.HttpClient();
-    requestMessage = new System.Net.Http.HttpRequestMessage();
+     //Define the request URI.
+     requestUri = new System.Uri(Params.BaseURL);
+     requestMessage.set_RequestUri(requestUri);
 
-    //Define the request URI.
-    requestUri = new System.Uri("https://api-test.edaaat.com/api/v2/Invoices/Installment"); // Replace with your actual API endpoint
-    requestMessage.set_RequestUri(requestUri);
+     //Set the HTTP method to POST.
+     requestMessage.set_Method(System.Net.Http.HttpMethod::get_Post());
 
-    //Set the HTTP method to POST.
-    requestMessage.set_Method(System.Net.Http.HttpMethod::get_Post());
+     //Prepare the JSON body and StringContent.
+     requestContract.parmIsClientEnterprise(true);
+     requestContract.parmRegistrationNo(_custTable.RegistrationNo);
+     requestContract.parmInternalCode(guid2Str(newGuid()));
+     requestContract.parmIssueDate(DateTimeUtil::utcNow());
+     requestContract.parmDueDate(DateTimeUtil::utcNow());
+     requestContract.parmTotalAmount(custbalance);
+     requestContract.parmTemplateReferenceCode("MHNNEW3");
+     requestContract.parmExportToSadad(true);
+     
+     product = new SC_ProductContract();
+     product.parmProductCode(Params.ProductCode);
+     product.parmPrice(custbalance);
+     product.parmQty(1);
+     
+     products.addEnd(product);
+     requestContract.parmProducts(products);
 
-    //Prepare the JSON body and StringContent.
-    invoice.parmIsClientEnterprise(true);
-    invoice.parmRegistrationNo("1609199517");
-    invoice.parmInternalCode("installment invoice MNHNEW3_9");
-    invoice.parmIssueDate(DateTimeUtil::utcNow());
-    invoice.parmDueDate(DateTimeUtil::utcNow());
-    invoice.parmTotalAmount(2500);
-    invoice.parmTemplateReferenceCode("MHNNEW3");
-    invoice.parmExportToSadad(true);
-    
-    product = new ProductContract();
-    product.parmProductCode("123456789");
-    product.parmPrice(2500);
-    product.parmQty(1);
-    
-    products.addEnd(product);
-    invoice.parmProducts(products);
+     jsonBody = FormJsonSerializer::serializeClass(requestContract);
+     encoding = System.Text.Encoding::get_UTF8();
+     stringContent = new System.Net.Http.StringContent(jsonBody, encoding, "application/json");
+     requestMessage.set_Content(stringContent);
 
-    jsonBody = FormJsonSerializer::serializeClass(invoice);
-    Info(strFmt("Body is: %1",jsonBody));
+     //Add the Bearer token to the Authorization header:
+     requestMessage.get_Headers().Add("Authorization", strFmt("Bearer %1",token));
 
-    encoding = System.Text.Encoding::get_UTF8();
-    stringContent = new System.Net.Http.StringContent(jsonBody, encoding, "application/json");
-    requestMessage.set_Content(stringContent);
+     //Send the request and handle the response:
+     try
+     {
+         responseMessage = httpClient.SendAsync(requestMessage).Result; // Synchronous call for simplicity
+         if (responseMessage.get_IsSuccessStatusCode())
+         {
+             responseBody = responseMessage.get_Content().ReadAsStringAsync().Result;
+             // Deserialize JSON into response contract
+             responseContract = FormJsonSerializer::deserializeObject(classnum(SC_InvoiceResponseContract),responseBody);
+             if(responseContract.parmStatus().parmSuccess()== true && responseContract.parmBody())
+             {
+                 // Save into table
+                 ttsBegin;
+                 responseTable.clear();
+                 if (responseContract.parmBody())
+                 {
+                     responseTable.InvoiceNo     = responseContract.parmBody().parmInvoiceNo();
+                     responseTable.InternalCode  = responseContract.parmBody().parmInternalCode();
+                     CustTable custTable;
+                     select forupdate custTable
+                         where custTable.AccountNum == _custTable.AccountNum;
+                     custTable.EdaatInvoiceNo   = responseContract.parmBody().parmInvoiceNo();
+                     custTable.update();
+                     responseTable.insert();
+                 }
+                 ttsCommit;
 
-    //Add the Bearer token to the Authorization header:
-    requestMessage.get_Headers().Add("Authorization", strFmt("Bearer %1", token));
+                 info("Response saved to InvoiceResponseTable.");
+             }
+             else
+             {
+                 str responseTxt = responseContract.parmStatus().parmMessage();
+                 
+                 if (strScan(responseTxt, "RegistrationNo", 1, strLen(responseTxt))>0)
+                 {
+                     warning("Customer is not found in EDAAT, please create customer first.");
+                 }
+                 else
+                 {
+                     warning(responseTxt);
 
-    //Send the request and handle the response:
-    try
-    {
-        responseMessage = httpClient.SendAsync(requestMessage).Result; // Synchronous call for simplicity
-        Info(strFmt("Response : %1", responseMessage));
-        if (responseMessage.get_IsSuccessStatusCode())
-        {
-            responseBody = responseMessage.get_Content().ReadAsStringAsync().Result;
-            info(strFmt("Response Body: %1", responseBody));
-        }
-        else
-        {
-            error(strFmt("Request failed with status code: %1", responseMessage.get_StatusCode()));
-            responseBody = responseMessage.get_Content().ReadAsStringAsync().Result;
-            info(strFmt("Error details: %1", responseBody));
-        }
-    }
-    catch (Exception::Error)
-    {
-        error("An error occurred during the HTTP request.");
-    }
-}
+                 }
+             }
+             
+         }
+         else
+         {
+             error(strFmt("Request failed with status code: %1", responseMessage.get_StatusCode()));
+             responseBody = responseMessage.get_Content().ReadAsStringAsync().Result;
+             info(strFmt("Error details: %1", responseBody));
+         }
+     }
+     catch (Exception::Error)
+     {
+         error("An error occurred during the HTTP request.");
+     }
+ }
