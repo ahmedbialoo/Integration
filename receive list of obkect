@@ -1,0 +1,16 @@
+[AifCollectionType('Invoices',Types::class,classStr(SC_ReceivePaymentListContract))]
+public void processPayments(List Invoices)
+{
+    ListEnumerator enumerator;
+    SC_InvoicePaymentContract invoicePaymentContract;
+
+    if (Invoices)
+    {
+        enumerator = Invoices.getEnumerator();
+        while (enumerator.moveNext())
+        {
+            invoicePaymentContract = enumerator.current();
+        }
+        
+    }
+}
