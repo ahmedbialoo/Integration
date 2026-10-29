@@ -1,0 +1,681 @@
+class TMK_LogistchainCustomerService
+{
+    [SysEntryPointAttribute(true)]
+    public TMK_CustomerCreationResponseContract CreateCustomer(TMK_CustomerCreationContract _contract)
+    {
+        TMK_CustomerCreationResponseContract response = new TMK_CustomerCreationResponseContract();
+
+        CustTable           custTable;
+        CustTable           existingCustTable;
+        CustGroup           custGroup;
+        PaymTerm            paymTerm;
+        CustPaymModeTable   custPaymModeTable;
+        Currency            currency;
+        HcmWorker           hcmWorker;
+        DirPerson           dirPerson;
+        DirPersonName       dirPersonName;
+        DirOrganization     dirOrganization;
+        DirPartyType        partyType;
+        Name                englishName;
+        Name                arabicName;
+        AccountNum          customerAccountNum;
+        AccountNum          invoiceAccount;
+        TaxGroup            salesTaxGroup;
+        CurrencyCode        customerCurrency;
+        Ledger              ledger;
+        PaymTermId          PaymTermId;
+        // VAT / CR enhancement variables
+        str                 currentProcessingField;
+        str                 currentProcessingValue;
+
+        response = this.validateCreateCustomerContract(_contract);
+        if (!response.parmStatus())
+        {
+            TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+
+        customerAccountNum = _contract.parmCustomerAccountNumber();
+        invoiceAccount     = _contract.parmInvoiceAccount();
+
+        if (!invoiceAccount)
+        {
+            invoiceAccount = customerAccountNum;
+        }
+
+        // Cust Account
+        existingCustTable = CustTable::find(customerAccountNum);
+        if (existingCustTable.RecId)
+        {
+            response = this.fail(
+                customerAccountNum,
+                'CustomerAccountNumber',
+                customerAccountNum,
+                strFmt("Customer account number %1 already exists.", customerAccountNum));
+
+            TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+
+        // Invoice Account
+        if (invoiceAccount)
+        {
+            if (CustTable::find(invoiceAccount).RecId)
+            {
+                response = this.fail(
+                    customerAccountNum,
+                    'InvoiceAccount',
+                    invoiceAccount,
+                    strFmt("Invoice account %1 already exists.", invoiceAccount));
+
+                TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+        }
+
+        // Customer group
+        if (_contract.parmCustomerGroup())
+        {
+            custGroup = CustGroup::find(_contract.parmCustomerGroup());
+            if (!custGroup.RecId)
+            {
+                response = this.fail(
+                    customerAccountNum,
+                    'CustomerGroup',
+                    _contract.parmCustomerGroup(),
+                    strFmt("Customer group %1 does not exist.", _contract.parmCustomerGroup()));
+
+                TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+        }
+
+        // Terms of payment
+        PaymTermId = PaymTerm::find(_contract.parmTermsOfPayment()).PaymTermId;
+        if (!PaymTermId && custGroup.RecId)
+        {
+            PaymTermId = custGroup.PaymTermId;
+        }
+        if (!PaymTermId)
+        {
+            response = this.fail(
+                    customerAccountNum,
+                    'TermsOfPayment',
+                    _contract.parmTermsOfPayment(),
+                    strFmt("Terms of payment %1 does not exist.", _contract.parmTermsOfPayment()));
+
+            TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+        // Sales responsible validation
+        if (_contract.parmSalesResponsiblePersonnelNumber())
+        {
+            hcmWorker = HcmWorker::findByPersonnelNumber(_contract.parmSalesResponsiblePersonnelNumber());
+            if (!hcmWorker.RecId)
+            {
+                response = this.fail(
+                    customerAccountNum,
+                    'SalesResponsible',
+                    _contract.parmSalesResponsiblePersonnelNumber(),
+                    strFmt("Worker %1 does not exist.", _contract.parmSalesResponsiblePersonnelNumber()));
+
+                TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+        }
+
+        // Currency
+        customerCurrency = _contract.parmCurrency();
+
+        if (!customerCurrency)
+        {
+            ledger = Ledger::findByLegalEntity(CompanyInfo::find().RecId);
+            customerCurrency = ledger.AccountingCurrency;
+        }
+
+        if (customerCurrency)
+        {
+            currency = Currency::find(customerCurrency);
+            if (!currency.RecId)
+            {
+                response = this.fail(
+                    customerAccountNum,
+                    'Currency',
+                    customerCurrency,
+                    strFmt("Currency %1 does not exist.", customerCurrency));
+
+                TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+        }
+
+        // Method of payment
+        if (_contract.parmMethodOfPayment())
+        {
+            custPaymModeTable = CustPaymModeTable::find(_contract.parmMethodOfPayment());
+            if (!custPaymModeTable.RecId)
+            {
+                response = this.fail(
+                    customerAccountNum,
+                    'MethodOfPayment',
+                    _contract.parmMethodOfPayment(),
+                    strFmt("Method of payment %1 does not exist.", _contract.parmMethodOfPayment()));
+
+                TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+        }
+
+        // Account status
+        if (_contract.parmAccountStatus())
+        {
+            if (!this.accountStatusExists(_contract.parmAccountStatus()))
+            {
+                response = this.fail(
+                    customerAccountNum,
+                    'AccountStatus',
+                    _contract.parmAccountStatus(),
+                    strFmt("Account status %1 does not exist.", _contract.parmAccountStatus()));
+
+                TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+        }
+
+        // Sales tax group default from customer group
+        salesTaxGroup = TaxGroupHeading::find(_contract.parmSalesTaxGroup()).TaxGroup;
+
+        if (!salesTaxGroup && custGroup.RecId)
+        {
+            salesTaxGroup = custGroup.TaxGroupId;
+        }
+        if (!salesTaxGroup)
+        {
+            response = this.fail(
+                    customerAccountNum,
+                    'salesTaxGroup',
+                    _contract.parmSalesTaxGroup(),
+                    strFmt("sales Tax Group %1 does not exist.", _contract.parmSalesTaxGroup()));
+
+            TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+       
+        englishName = this.buildEnglishName(_contract);
+        arabicName  = this.buildArabicName(_contract);
+
+        partyType = this.getPartyType(_contract.parmType());
+
+        ttsbegin;
+
+        try
+        {
+            custTable.clear();
+            custTable.initValue();
+
+            custTable.AccountNum      = customerAccountNum;
+            custTable.InvoiceAccount  = invoiceAccount;
+            custTable.CustGroup       = _contract.parmCustomerGroup();
+            custTable.PaymTermId      = PaymTermId;
+            custTable.CreditMax       = _contract.parmCreditLimit();
+            custTable.Currency        = customerCurrency;
+            custTable.PaymMode        = _contract.parmMethodOfPayment();
+            custTable.TaxGroup        = salesTaxGroup;
+
+            if (_contract.parmCreditLimit())
+            {
+                custTable.MandatoryCreditLimit = NoYes::Yes;
+            }
+
+            // Sales responsible
+            if (hcmWorker.RecId)
+            {
+                custTable.MainContactWorker = hcmWorker.RecId;
+            }
+
+            // Account Status
+            if (_contract.parmAccountStatus())
+            {
+                custTable.CredManAccountStatusId = _contract.parmAccountStatus();
+            }
+
+            // Arabic Name
+            custTable.TMK_ArabicName = arabicName;
+
+            // VAT Number
+            this.PopulateCustomFields(custTable,_contract);
+            
+
+            if (partyType == DirPartyType::Person)
+            {
+                custTable.insert(DirPartyType::Person, englishName);
+
+                select firstonly forupdate dirPerson
+                    where dirPerson.RecId == custTable.Party;
+
+                if (dirPerson.RecId)
+                {
+                    dirPerson.NameAlias = englishName;
+                    dirPerson.update();
+                }
+
+                select firstonly forupdate dirPersonName
+                    order by ValidTo desc
+                    where dirPersonName.Person == custTable.Party;
+
+                if (dirPersonName.RecId)
+                {
+                    dirPersonName.validTimeStateUpdateMode(ValidTimeStateUpdate::Correction);
+                    dirPersonName.FirstName  = _contract.parmFirstName();
+                    dirPersonName.MiddleName = _contract.parmMiddleName();
+                    dirPersonName.LastName   = _contract.parmLastName();
+                    dirPersonName.update();
+                }
+            }
+            else
+            {
+                custTable.insert(DirPartyType::Organization, englishName);
+
+                // CR Number
+                if (_contract.parmCRNumber())
+                {
+                    select firstonly forupdate dirOrganization
+                        where dirOrganization.RecId == custTable.Party;
+
+                    if (dirOrganization.RecId)
+                    {
+                        dirOrganization.OrgNumber = _contract.parmCRNumber();
+                        dirOrganization.update();
+                    }
+                }
+            }
+
+            // Address
+            this.createPostalAddress(
+                custTable.Party,
+                customerAccountNum,
+                _contract.parmAddressName(),
+                _contract.parmCountryRegionId(),
+                _contract.parmPostalCode(),
+                _contract.parmStreet(),
+                _contract.parmCity(),
+                _contract.parmState());
+
+            // Contact info
+            this.createOrUpdateContactInfo(
+                custTable.Party,
+                _contract.parmPhoneNumber(),
+                LogisticsElectronicAddressMethodType::Phone,
+                "Primary Phone");
+
+            this.createOrUpdateContactInfo(
+                custTable.Party,
+                _contract.parmEmailAddress(),
+                LogisticsElectronicAddressMethodType::Email,
+                "Primary Email");
+
+            ttscommit;
+
+            response.parmCustomerAccountNumber(customerAccountNum);
+            response.parmStatus(true);
+            response.parmRejectedField('');
+            response.parmRejectedValue('');
+            response.parmMessage(strFmt("Customer %1 created successfully.", customerAccountNum));
+
+            TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), true);
+            return response;
+        }
+        catch (Exception::Error)
+        {
+            ttsabort;
+
+            response.parmCustomerAccountNumber(customerAccountNum);
+            response.parmStatus(false);
+
+            if (currentProcessingField)
+            {
+                response.parmRejectedField(currentProcessingField);
+                response.parmRejectedValue(currentProcessingValue);
+                response.parmMessage(strFmt(
+                    "RejectedField: %1 | RejectedValue: %2 | Reason: %3",
+                    currentProcessingField,
+                    currentProcessingValue,
+                    TMK_LogistchainCustomerService::getErrorMesg()));
+            }
+            else
+            {
+                response.parmRejectedField('System');
+                response.parmRejectedValue(customerAccountNum);
+                response.parmMessage(strFmt(
+                    "RejectedField: System | RejectedValue: %1 | Reason: %2",
+                    customerAccountNum,
+                    TMK_LogistchainCustomerService::getErrorMesg()));
+            }
+
+            TMK_IntegrationLogTable::logMessage('Create Customer', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+    }
+
+    public void PopulateCustomFields(CustTable CustTable, TMK_CustomerCreationContract _contract)
+    {
+
+    }
+
+    [SysEntryPointAttribute(true)]
+    public TMK_CustomerCreationResponseContract ChangeAccountStatus(TMK_CustomerStatusChangeContract _contract)
+    {
+        TMK_CustomerCreationResponseContract response = new TMK_CustomerCreationResponseContract();
+        CustTable custTable;
+
+        if (!_contract.parmCustomerAccountNumber())
+        {
+            response = this.fail(
+                '',
+                'CustomerAccountNumber',
+                '',
+                "Customer account number is required.");
+
+            TMK_IntegrationLogTable::logMessage('Change Customer Account Status', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+
+        if (!_contract.parmAccountStatus())
+        {
+            response = this.fail(
+                _contract.parmCustomerAccountNumber(),
+                'AccountStatus',
+                '',
+                "Account status is required.");
+
+            TMK_IntegrationLogTable::logMessage('Change Customer Account Status', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+
+        if (!this.accountStatusExists(_contract.parmAccountStatus()))
+        {
+            response = this.fail(
+                _contract.parmCustomerAccountNumber(),
+                'AccountStatus',
+                _contract.parmAccountStatus(),
+                strFmt("Account status %1 does not exist.", _contract.parmAccountStatus()));
+
+            TMK_IntegrationLogTable::logMessage('Change Customer Account Status', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+
+        ttsbegin;
+
+        try
+        {
+            select firstonly forupdate custTable
+                where custTable.AccountNum == _contract.parmCustomerAccountNumber();
+
+            if (!custTable.RecId)
+            {
+                ttsabort;
+
+                response = this.fail(
+                    _contract.parmCustomerAccountNumber(),
+                    'CustomerAccountNumber',
+                    _contract.parmCustomerAccountNumber(),
+                    strFmt("Customer %1 does not exist.", _contract.parmCustomerAccountNumber()));
+
+                TMK_IntegrationLogTable::logMessage('Change Customer Account Status', _contract, response, response.parmMessage(), false);
+                return response;
+            }
+
+            custTable.CredManAccountStatusId = _contract.parmAccountStatus();
+            custTable.update();
+
+            ttscommit;
+            if(CustTableChangeProposalFieldEnablement::findOrCreate(CustTableChangeProposalField::CredManAccountStatusId).IsEnabled == NoYes::Yes)
+            {
+                response.parmCustomerAccountNumber(custTable.AccountNum);
+                response.parmStatus(true);
+                response.parmRejectedField('');
+                response.parmRejectedValue('');
+                response.parmMessage(strFmt("Customer %1 account status updated and waiting the proposal approval.", custTable.AccountNum));
+            }
+
+            
+            response.parmCustomerAccountNumber(custTable.AccountNum);
+            response.parmStatus(true);
+            response.parmRejectedField('');
+            response.parmRejectedValue('');
+            response.parmMessage(strFmt("Customer %1 account status updated successfully.", custTable.AccountNum));
+
+            TMK_IntegrationLogTable::logMessage('Change Customer Account Status', _contract, response, response.parmMessage(), true);
+            return response;
+        }
+        catch (Exception::Error)
+        {
+            ttsabort;
+
+            response.parmCustomerAccountNumber(_contract.parmCustomerAccountNumber());
+            response.parmStatus(false);
+            response.parmRejectedField('System');
+            response.parmRejectedValue(_contract.parmCustomerAccountNumber());
+            response.parmMessage(TMK_LogistchainCustomerService::getErrorMesg());
+
+            TMK_IntegrationLogTable::logMessage('Change Customer Account Status', _contract, response, response.parmMessage(), false);
+            return response;
+        }
+    }
+
+    private TMK_CustomerCreationResponseContract validateCreateCustomerContract(TMK_CustomerCreationContract _contract)
+    {
+        TMK_CustomerCreationResponseContract response = new TMK_CustomerCreationResponseContract();
+
+        response.parmStatus(true);
+
+        if (!_contract.parmCustomerAccountNumber())
+        {
+            return this.fail('', 'CustomerAccountNumber', '', "Customer account number is required.");
+        }
+
+        if (!_contract.parmType())
+        {
+            return this.fail(_contract.parmCustomerAccountNumber(), 'Type', '', "Customer type is required.");
+        }
+
+        if (_contract.parmType() != 'Person' && _contract.parmType() != 'Organization')
+        {
+            return this.fail(
+                _contract.parmCustomerAccountNumber(),
+                'Type',
+                _contract.parmType(),
+                "Customer type must be Person or Organization.");
+        }
+
+        // Same validation criteria for Person and Organization:
+        // English First and Last are required.
+        // English Middle is optional.
+        // Arabic First and Last are required.
+        // Arabic Middle is optional.
+        if (!_contract.parmFirstName())
+        {
+            return this.fail(
+                _contract.parmCustomerAccountNumber(),
+                'FirstName',
+                '',
+                strFmt("First name is required for %1 customer.", _contract.parmType()));
+        }
+
+        if(_contract.parmType() == "Person")
+        {
+            if (!_contract.parmLastName())
+            {
+                return this.fail(
+                    _contract.parmCustomerAccountNumber(),
+                    'LastName',
+                    '',
+                    strFmt("Last name is required for %1 customer.", _contract.parmType()));
+            }
+        }
+        if (!_contract.parmArabicFirstName())
+        {
+            return this.fail(
+                _contract.parmCustomerAccountNumber(),
+                'ArabicFirstName',
+                '',
+                strFmt("Arabic first name is required for %1 customer.", _contract.parmType()));
+        }
+        if(_contract.parmType() == "Person")
+        {
+            if (!_contract.parmArabicLastName())
+            {
+                return this.fail(
+                    _contract.parmCustomerAccountNumber(),
+                    'ArabicLastName',
+                    '',
+                    strFmt("Arabic last name is required for %1 customer.", _contract.parmType()));
+            }
+        }
+        if (!_contract.parmTermsOfPayment())
+        {
+            return this.fail(_contract.parmCustomerAccountNumber(), 'TermsOfPayment', '', "Terms of payment is required.");
+        }
+
+        return response;
+    }
+
+    private TMK_CustomerCreationResponseContract fail(
+        AccountNum _customerAccountNumber,
+        str        _field,
+        str        _value,
+        str        _reason)
+    {
+        TMK_CustomerCreationResponseContract response = new TMK_CustomerCreationResponseContract();
+
+        response.parmCustomerAccountNumber(_customerAccountNumber);
+        response.parmStatus(false);
+        response.parmRejectedField(_field);
+        response.parmRejectedValue(_value);
+        response.parmMessage(strFmt("RejectedField: %1 | RejectedValue: %2 | Reason: %3", _field, _value, _reason));
+
+        return response;
+    }
+
+    private Name buildEnglishName(TMK_CustomerCreationContract _contract)
+    {
+        Name nameValue;
+
+        // Enhancement:
+        // Person and Organization both use First + Middle + Last.
+        nameValue = strLRTrim(strFmt(
+            "%1 %2 %3",
+            _contract.parmFirstName(),
+            _contract.parmMiddleName(),
+            _contract.parmLastName()));
+
+        return nameValue;
+    }
+
+    private Name buildArabicName(TMK_CustomerCreationContract _contract)
+    {
+        Name nameValue;
+
+        // Enhancement:
+        // Person and Organization both use Arabic First + Arabic Middle + Arabic Last.
+        nameValue = strLRTrim(strFmt(
+            "%1 %2 %3",
+            _contract.parmArabicFirstName(),
+            _contract.parmArabicMiddleName(),
+            _contract.parmArabicLastName()));
+
+        return nameValue;
+    }
+
+    private DirPartyType getPartyType(str _type)
+    {
+        if (_type == 'Person')
+        {
+            return DirPartyType::Person;
+        }
+
+        return DirPartyType::Organization;
+    }
+
+    private boolean accountStatusExists(str _accountStatus)
+    {
+        CredManAccountStatusTable accountStatus;
+
+        select firstonly RecId from accountStatus
+            where accountStatus.CustAccountStatusId == _accountStatus;
+
+        return accountStatus.RecId != 0;
+    }
+
+    private void createPostalAddress(
+        DirPartyRecId          _partyRecId,
+        AccountNum             _accountNum,
+        Description            _addressName,
+        addressCountryRegionId _countryRegionId,
+        addressZipCodeId       _postalCode,
+        StreetName             _street,
+        addressCity            _city,
+        addressStateId         _state)
+    {
+
+        DirPartyPostalAddressView addressView;
+        DirParty                  dirParty;
+
+        dirParty = DirParty::constructFromPartyRecId(_partyRecId);
+
+        addressView.clear();
+        addressView.Party           = _partyRecId;
+        addressView.LocationName    = _addressName;
+        addressView.Address         = _addressName;
+        addressView.CountryRegionId = _countryRegionId;
+        addressView.ZipCode         = _postalCode;
+        addressView.Street          = _street;
+        addressView.City            = _city;
+        addressView.State           = _state;
+        addressView.IsPrimary       = NoYes::Yes;
+
+        dirParty.createOrUpdatePostalAddress(addressView);
+    }
+
+    private void createOrUpdateContactInfo(
+        DirPartyRecId _partyRecId,
+        str           _locator,
+        LogisticsElectronicAddressMethodType _type,
+        Description   _locationName)
+    {
+        DirPartyContactInfoView contactInfoView;
+        DirParty                dirParty;
+
+        if (!_locator)
+        {
+            return;
+        }
+
+        dirParty = DirParty::constructFromPartyRecId(_partyRecId);
+
+        contactInfoView.clear();
+        contactInfoView.LocationName = _locationName;
+        contactInfoView.Locator      = _locator;
+        contactInfoView.Type         = _type;
+        contactInfoView.IsPrimary    = NoYes::Yes;
+
+        dirParty.createOrUpdateContactInfo(contactInfoView);
+    }
+
+    public static str getErrorMesg()
+    {
+        Log                  errorMessage;
+        SysInfologEnumerator sysInfologEnumerator;
+
+        sysInfologEnumerator = SysInfologEnumerator::newData(infolog.infologData());
+        errorMessage = "";
+
+        while (sysInfologEnumerator.moveNext())
+        {
+            errorMessage += sysInfologEnumerator.currentMessage() + " ; ";
+        }
+
+        return errorMessage;
+    }
+
+}
